@@ -2,6 +2,8 @@
 
 A Django app for visualising overlaid kinetic line charts from a metadata CSV.
 
+![Alt text](images/App_layout.png)
+
 ## Quick Start
 
 ```bash
