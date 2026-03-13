@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kinetic Data Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:      #0b0e13;
+    --bg2:     #111520;
+    --bg3:     #181d2a;
+    --bg4:     #1c2336;
+    --border:  #1e2535;
+    --border-hi: #2e3f60;
+    --accent:  #3b82f6;
+    --c-pri:   #818cf8;   /* indigo — primary */
+    --c-ovl:   #f59e0b;   /* amber  — overlay  */
+    --text:    #e2e8f0;
+    --dim:     #64748b;
+    --muted:   #2e3f55;
+    --good:    #10b981;
+    --bad:     #ef4444;
+    --check:   #f59e0b;
+    --mono:    'IBM Plex Mono', monospace;
+    --sans:    'IBM Plex Sans', sans-serif;
+    --hdr:     48px;
+    --sidebar: 320px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: grid;
+    grid-template-rows: var(--hdr) 1fr;
+    grid-template-columns: var(--sidebar) 1fr;
+    grid-template-areas: "hdr hdr" "side main";
+  }
+
+  /* ── HEADER ── */
+  header {
+    grid-area: hdr;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #22d3ee;
+  }
+  .logo em { color: var(--dim); font-style: normal; font-weight: 300; }
+  .hdr-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background .3s; }
+  .dot.on { background: var(--good); box-shadow: 0 0 5px var(--good); }
+  .spinner {
+    width: 15px; height: 15px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .65s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── SIDEBAR ── */
+  aside {
+    grid-area: side;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── MAIN ── */
+  main {
+    grid-area: main;
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 10px;
+    overflow: hidden;          /* chart fills; no page scroll */
+    height: 100%;
+  }
+
+  /* ── Shared sidebar atoms ── */
+  .block { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+
+  .blk-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .pip {
+    width: 7px; height: 7px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .pip.pri { background: var(--c-pri); }
+  .pip.ovl { background: var(--c-ovl); }
+  .blk-title.pri { color: var(--c-pri); }
+  .blk-title.ovl { color: var(--c-ovl); }
+  .blk-title.neu { color: var(--dim); }
+
+  .blk-count {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: var(--mono);
+    padding: 1px 7px;
+    border-radius: 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    letter-spacing: 0;
+  }
+
+  input[type="text"] {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: var(--muted); }
+
+  .btn-load {
+    width: 100%;
+    margin-top: 7px;
+    padding: 8px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-load:hover { background: #2563eb; }
+  .btn-load:disabled { background: var(--muted); cursor: not-allowed; }
+
+  .alert {
+    margin-top: 8px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+    display: none;
+  }
+  .alert.err { background: rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25); color:#fca5a5; display:block; }
+  .alert.ok  { background: rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);color:#6ee7b7;display:block; }
+
+  /* filter rows */
+  .fg { margin-bottom: 8px; }
+  .fg:last-of-type { margin-bottom: 0; }
+  .fg-lbl {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .fg-lbl .tag.pri { color: var(--c-pri); }
+  .fg-lbl .tag.ovl { color: var(--c-ovl); }
+
+  select {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 7px 24px 7px 9px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5' fill='none'%3E%3Cpath d='M1 1l3.5 3.5L8 1' stroke='%2364748b' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    transition: border-color .15s;
+  }
+  select:focus { border-color: var(--border-hi); }
+
+  .divider { height: 1px; background: var(--border); margin: 10px 0; }
+
+  /* ── FLAG ZONE ── */
+  .flag-zone {
+    margin-top: 10px;
+    padding: 11px 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+  }
+  .flag-zone-lbl {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 8px;
+  }
+  .flag-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+  }
+  .fb {
+    padding: 6px 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg4);
+    color: var(--dim);
+    cursor: pointer;
+    text-align: center;
+    transition: all .15s;
+  }
+  .fb:hover { border-color: var(--border-hi); color: var(--text); }
+  .fb.a-none  { border-color: var(--border-hi); color: var(--dim);   background: rgba(100,116,139,.1); }
+  .fb.a-good  { border-color: var(--good);  color: var(--good);  background: rgba(16,185,129,.12); }
+  .fb.a-bad   { border-color: var(--bad);   color: var(--bad);   background: rgba(239,68,68,.12); }
+  .fb.a-check { border-color: var(--check); color: var(--check); background: rgba(245,158,11,.12); }
+
+  .flag-fb {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--good);
+    min-height: 14px;
+    margin-top: 7px;
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  .flag-fb.show  { opacity: 1; }
+  .flag-fb.mixed { opacity: 1; color: var(--check); }
+
+  /* ── SMOOTHING TOGGLE ── */
+  .smooth-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-top: 10px;
+    padding: 9px 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: border-color .15s;
+    user-select: none;
+  }
+  .smooth-row:hover { border-color: var(--border-hi); }
+  .smooth-row.active { border-color: var(--c-pri); background: rgba(129,140,248,.07); }
+  .ck-box {
+    width: 15px; height: 15px;
+    border: 1.5px solid var(--border-hi);
+    border-radius: 3px;
+    background: var(--bg4);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s;
+    font-size: 10px;
+  }
+  .smooth-row.active .ck-box { background: var(--c-pri); border-color: var(--c-pri); color: #fff; }
+  .smooth-lbl {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    flex: 1;
+    transition: color .15s;
+  }
+  .smooth-row.active .smooth-lbl { color: var(--c-pri); }
+  .smooth-hint {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  /* inline editable number inside a smooth-row */
+  .inline-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    width: 62px;
+    padding: 3px 6px;
+    background: var(--bg4);
+    border: 1px solid var(--border-hi);
+    border-radius: 3px;
+    color: var(--text);
+    outline: none;
+    text-align: right;
+    transition: border-color .15s, box-shadow .15s;
+    flex-shrink: 0;
+  }
+  .inline-num:focus  { border-color: var(--c-pri); box-shadow: 0 0 0 2px rgba(129,140,248,.18); }
+  .inline-num.saving { border-color: var(--check); }
+  .inline-num.saved  { border-color: var(--good); }
+  .inline-num.err    { border-color: var(--bad); }
+
+  /* clear btn */
+  .btn-clr {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 6px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-clr:hover { border-color: var(--border-hi); color: var(--text); }
+
+  /* ── LEGEND ── */
+  .legend-block { padding: 12px 16px; flex: 1; overflow-y: auto; display: none; }
+  .legend-block .blk-title { margin-bottom: 8px; }
+
+  .leg-row {
+    border-bottom: 1px solid var(--border);
+    padding: 5px 0;
+  }
+  .leg-row:last-child { border-bottom: none; }
+
+  .leg-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .leg-sw { width: 18px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .leg-name {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    line-height: 1.3;
+    word-break: break-all;
+  }
+  .leg-name.pri { color: var(--text); }
+  .leg-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .leg-badge.pri { background: rgba(129,140,248,.12); color: var(--c-pri); border: 1px solid rgba(129,140,248,.25); }
+  .leg-badge.ovl { background: rgba(245,158,11,.10);  color: var(--c-ovl); border: 1px solid rgba(245,158,11,.25); }
+  .leg-badge.smt { background: rgba(129,140,248,.07); color: #a5b4fc;      border: 1px solid rgba(129,140,248,.2); }
+  .eye {
+    background: none; border: none; cursor: pointer;
+    color: var(--dim); font-size: 12px; padding: 0 1px;
+    transition: opacity .15s; flex-shrink: 0;
+  }
+  .eye.off { opacity: .2; }
+
+  /* Editable computed values — shown per primary series */
+  .leg-computed {
+    margin-top: 5px;
+    padding: 7px 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+    gap: 5px;
+  }
+  .cval {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .cval-lbl {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .cval-input {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 6px;
+    width: 100%;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .cval-input:focus { border-color: var(--c-pri); }
+  .cval-input.saving { border-color: var(--check); }
+  .cval-input.saved  { border-color: var(--good); }
+  .cval-note {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    margin-top: 1px;
+    min-height: 11px;
+    transition: color .2s;
+  }
+  .cval-note.ok  { color: var(--good); }
+  .cval-note.err { color: var(--bad); }
+
+  /* ── CHART AREA ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+  }
+  .tb-lbl { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .tb-btn {
+    padding: 5px 11px;
+    font-family: var(--mono);
+    font-size: 10px;
+    border-radius: 3px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .tb-btn.active { background: rgba(59,130,246,.1); border-color: var(--accent); color: var(--accent); }
+  .tb-btn:hover  { border-color: var(--border-hi); color: var(--text); }
+
+  /* the chart card fills all remaining vertical space */
+  .chart-card {
+    flex: 1;
+    min-height: 0;           /* critical — lets flex child shrink */
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px;
+    position: relative;
+    display: flex;
+    align-items: stretch;
+  }
+  canvas {
+    display: none;
+    flex: 1;
+    min-height: 0;
+  }
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .ph-icon {
+    width: 46px; height: 46px;
+    border: 1px solid var(--border-hi);
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+  }
+  .ph-txt {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.9;
+  }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+  .note { font-family: var(--mono); font-size: 10px; color: var(--muted); line-height: 1.7; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">Kinetic<em> // </em>Viewer</div>
+  <div class="hdr-right">
+    <div class="dot" id="dot"></div>
+    <span id="statusTxt">no data loaded</span>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</header>
+
+<!-- SIDEBAR -->
+<aside>
+
+  <!-- Load -->
+  <div class="block">
+    <div class="blk-title neu">Data Source</div>
+    <input type="text" id="metaPath" placeholder="/path/to/metadata.csv" />
+    <button class="btn-load" id="loadBtn" onclick="loadMetadata()">Load Metadata CSV</button>
+    <div id="loadAlert" class="alert"></div>
+  </div>
+
+  <!-- PRIMARY panel -->
+  <div class="block" id="panelPrimary" style="display:none">
+    <div class="blk-title pri">
+      <span class="pip pri"></span>
+      Primary Strain
+      <span class="blk-count" id="priCount">—</span>
+    </div>
+    <div class="note">Filters narrow curves. Flag applies to all matching rows.</div>
+    <div id="primaryFilters"></div>
+
+    <!-- Flag zone lives inside primary panel -->
+    <div class="flag-zone">
+      <div class="flag-zone-lbl">Flag all filtered rows</div>
+      <div class="flag-row">
+        <button class="fb" id="fb-none"  onclick="applyFlag('')">— none</button>
+        <button class="fb" id="fb-good"  onclick="applyFlag('good')">✓ good</button>
+        <button class="fb" id="fb-bad"   onclick="applyFlag('bad')">✗ bad</button>
+        <button class="fb" id="fb-check" onclick="applyFlag('check')">? check</button>
+      </div>
+      <div class="flag-fb" id="flagFb"></div>
+    </div>
+
+    <!-- Smoothing toggle -->
+    <div class="smooth-row" id="smoothRow" onclick="toggleSmoothing()">
+      <div class="ck-box" id="ckBox"></div>
+      <span class="smooth-lbl">Overlay smoothed curve</span>
+      <span class="smooth-hint">window = 5</span>
+    </div>
+
+    <!-- Peak line toggle -->
+    <div class="smooth-row" id="peakRow">
+      <div class="ck-box" id="ckBoxPeak" onclick="togglePeakLine()" style="cursor:pointer"></div>
+      <span class="smooth-lbl" onclick="togglePeakLine()" style="cursor:pointer">Show peak OD line</span>
+      <input type="number" step="any" id="peakTimeInput" class="inline-num"
+             placeholder="t"
+             title="Peak OD time — press Enter or blur to save to metadata"
+             onclick="event.stopPropagation()"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();savePeakTime()}"
+             onblur="savePeakTime()">
+    </div>
+
+    <!-- AUC toggle -->
+    <div class="smooth-row" id="aucRow">
+      <div class="ck-box" id="ckBoxAuc" onclick="toggleAuc()" style="cursor:pointer"></div>
+      <span class="smooth-lbl" onclick="toggleAuc()" style="cursor:pointer">Highlight area under curve</span>
+      <input type="number" step="any" id="aucStartInput" class="inline-num"
+             placeholder="t"
+             title="AUC start time — press Enter or blur to save and recompute AUC"
+             onclick="event.stopPropagation()"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();saveAucStart()}"
+             onblur="saveAucStart()">
+    </div>
+
+    <!-- Growth rate toggle -->
+    <div class="smooth-row" id="grRow">
+      <div class="ck-box" id="ckBoxGr" onclick="toggleGrowthRate()" style="cursor:pointer"></div>
+      <span class="smooth-lbl" onclick="toggleGrowthRate()" style="cursor:pointer">Show specific growth rate</span>
+      <input type="number" step="any" id="grStartInput" class="inline-num"
+             placeholder="t"
+             title="Growth rate fitting start — press Enter or blur to save and recompute μ"
+             onclick="event.stopPropagation()"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();saveGrStart()}"
+             onblur="saveGrStart()">
+    </div>
+  </div>
+
+  <!-- OVERLAY panel -->
+  <div class="block" id="panelOverlay" style="display:none">
+    <div class="blk-title ovl">
+      <span class="pip ovl"></span>
+      Overlay
+      <span class="blk-count" id="ovlCount">—</span>
+    </div>
+    <div class="note">Compare other strains — read-only, no flagging.</div>
+    <div id="overlayFilters"></div>
+    <button class="btn-clr" onclick="clearOverlay()">Clear overlay</button>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend-block" id="legendBlock">
+    <div class="blk-title neu">Series</div>
+    <div id="legendList"></div>
+  </div>
+
+</aside>
+
+<!-- MAIN -->
+<main>
+  <div class="toolbar" id="toolbar" style="display:none">
+    <span class="tb-lbl">Style:</span>
+    <button class="tb-btn active" id="btnLines"  onclick="setStyle('lines')">Lines</button>
+    <button class="tb-btn"        id="btnPoints" onclick="setStyle('points')">Points</button>
+    <button class="tb-btn"        id="btnBoth"   onclick="setStyle('both')">Both</button>
+    <span style="flex:1"></span>
+    <button class="tb-btn" onclick="downloadChart()">⬇ PNG</button>
+  </div>
+
+  <div class="chart-card">
+    <div class="placeholder" id="placeholder">
+      <div class="ph-icon">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </div>
+      <div class="ph-txt">Load a CSV then use the<br>Primary panel to select curves</div>
+    </div>
+    <canvas id="kineticChart"></canvas>
+  </div>
+
+  <div id="errBlock" style="display:none;flex-shrink:0"></div>
+</main>
+
+<script>
+// ── State ──
+let meta = null, chart = null, lineStyle = 'lines';
+let primaryFilters = {}, overlayFilters = {};
+let allDatasets = [];
+let showSmoothing = false;
+let showPeakLine  = false;
+let showAuc       = false;
+let showGrowthRate = false;
+const AUC_START   = 5;   // t value from which AUC is computed
+
+// ── 5-point sliding window mean ──
+function rollingMean(values, window) {
+  const half = Math.floor(window / 2);
+  return values.map((_, i) => {
+    const start = Math.max(0, i - half);
+    const end   = Math.min(values.length - 1, i + half);
+    const slice = values.slice(start, end + 1);
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+}
+
+function toggleSmoothing() {
+  showSmoothing = !showSmoothing;
+  document.getElementById('smoothRow').classList.toggle('active', showSmoothing);
+  document.getElementById('ckBox').textContent = showSmoothing ? '✓' : '';
+  if (allDatasets.length) renderChart(
+    allDatasets,
+    allDatasets[0]?.time_col  || 'Time',
+    allDatasets[0]?.value_col || 'Value'
+  );
+}
+
+function togglePeakLine() {
+  showPeakLine = !showPeakLine;
+  document.getElementById('peakRow').classList.toggle('active', showPeakLine);
+  document.getElementById('ckBoxPeak').textContent = showPeakLine ? '✓' : '';
+  if (allDatasets.length) renderChart(
+    allDatasets,
+    allDatasets[0]?.time_col  || 'Time',
+    allDatasets[0]?.value_col || 'Value'
+  );
+}
+
+// ── Save peak time from panel input → all matching primary rows ──
+async function savePeakTime() {
+  const input = document.getElementById('peakTimeInput');
+  const raw   = input.value.trim();
+  if (raw === '') return;                          // empty → nothing to do
+  const val = parseFloat(raw);
+  if (isNaN(val)) { input.classList.add('err'); return; }
+
+  // Check nothing changed vs stored value of first primary ds
+  const firstPrimary = allDatasets.find(d => d.is_primary);
+  if (firstPrimary && Math.abs((firstPrimary.peak_od_time ?? NaN) - val) < 1e-9) return;
+
+  input.classList.remove('err', 'saved');
+  input.classList.add('saving');
+
+  try {
+    // Save for every primary row individually
+    const primaryRows = allDatasets.filter(d => d.is_primary);
+    const promises = primaryRows.map(ds =>
+      fetch('/api/save-computed/', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({ row_id: ds.row_id, peak_od_time: val })
+      })
+    );
+    const results = await Promise.all(promises);
+    const allOk   = results.every(r => r.ok);
+
+    if (allOk) {
+      // Update local state
+      primaryRows.forEach(ds => ds.peak_od_time = val);
+      input.classList.remove('saving');
+      input.classList.add('saved');
+      // Redraw chart so peak line moves immediately
+      if (showPeakLine && allDatasets.length)
+        renderChart(allDatasets, allDatasets[0].time_col, allDatasets[0].value_col);
+      setTimeout(() => input.classList.remove('saved'), 2000);
+    } else {
+      input.classList.remove('saving');
+      input.classList.add('err');
+      setTimeout(() => input.classList.remove('err'), 2500);
+    }
+  } catch (e) {
+    input.classList.remove('saving');
+    input.classList.add('err');
+    setTimeout(() => input.classList.remove('err'), 2500);
+  }
+}
+
+function toggleAuc() {
+  showAuc = !showAuc;
+  document.getElementById('aucRow').classList.toggle('active', showAuc);
+  document.getElementById('ckBoxAuc').textContent = showAuc ? '✓' : '';
+  if (allDatasets.length) renderChart(
+    allDatasets,
+    allDatasets[0]?.time_col  || 'Time',
+    allDatasets[0]?.value_col || 'Value'
+  );
+}
+
+// ── Save AUC start time → all primary rows, recomputes AUC server-side ──
+async function saveAucStart() {
+  const input = document.getElementById('aucStartInput');
+  const raw   = input.value.trim();
+  if (raw === '') return;
+  const val = parseFloat(raw);
+  if (isNaN(val)) { input.classList.add('err'); return; }
+
+  // Skip if unchanged
+  const firstPrimary = allDatasets.find(d => d.is_primary);
+  if (firstPrimary && Math.abs((firstPrimary.auc_start ?? NaN) - val) < 1e-9) return;
+
+  input.classList.remove('err', 'saved');
+  input.classList.add('saving');
+
+  try {
+    const primaryRows = allDatasets.filter(d => d.is_primary);
+    const responses = await Promise.all(primaryRows.map(ds =>
+      fetch('/api/save-computed/', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({ row_id: ds.row_id, auc_start: val })
+      }).then(r => r.json().then(data => ({ ok: r.ok, data, ds })))
+    ));
+
+    const allOk = responses.every(r => r.ok);
+    if (allOk) {
+      // Update local state with new auc_start and recomputed auc_value from backend
+      responses.forEach(({ data, ds }) => {
+        ds.auc_start = val;
+        if (data.updated?.auc_value != null) ds.auc_value = data.updated.auc_value;
+      });
+      input.classList.remove('saving');
+      input.classList.add('saved');
+      // Redraw so AUC shading and label update immediately
+      if (showAuc && allDatasets.length)
+        renderChart(allDatasets, allDatasets[0].time_col, allDatasets[0].value_col);
+      // Refresh legend inputs to reflect new auc_value
+      renderLegend(allDatasets);
+      setTimeout(() => input.classList.remove('saved'), 2000);
+    } else {
+      input.classList.remove('saving');
+      input.classList.add('err');
+      setTimeout(() => input.classList.remove('err'), 2500);
+    }
+  } catch (e) {
+    input.classList.remove('saving');
+    input.classList.add('err');
+    setTimeout(() => input.classList.remove('err'), 2500);
+  }
+}
+
+function toggleGrowthRate() {
+  showGrowthRate = !showGrowthRate;
+  document.getElementById('grRow').classList.toggle('active', showGrowthRate);
+  document.getElementById('ckBoxGr').textContent = showGrowthRate ? '✓' : '';
+  if (allDatasets.length) renderChart(
+    allDatasets,
+    allDatasets[0]?.time_col  || 'Time',
+    allDatasets[0]?.value_col || 'Value'
+  );
+}
+
+// ── Save growth-rate start → all primary rows, recomputes μ server-side ──
+async function saveGrStart() {
+  const input = document.getElementById('grStartInput');
+  const raw   = input.value.trim();
+  if (raw === '') return;
+  const val = parseFloat(raw);
+  if (isNaN(val)) { input.classList.add('err'); return; }
+
+  const firstPrimary = allDatasets.find(d => d.is_primary);
+  if (firstPrimary && Math.abs((firstPrimary.gr_start ?? NaN) - val) < 1e-9) return;
+
+  input.classList.remove('err', 'saved');
+  input.classList.add('saving');
+
+  try {
+    const primaryRows = allDatasets.filter(d => d.is_primary);
+    const responses = await Promise.all(primaryRows.map(ds =>
+      fetch('/api/save-computed/', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({ row_id: ds.row_id, gr_start: val })
+      }).then(r => r.json().then(data => ({ ok: r.ok, data, ds })))
+    ));
+
+    const allOk = responses.every(r => r.ok);
+    if (allOk) {
+      responses.forEach(({ data, ds }) => {
+        ds.gr_start = val;
+        if (data.updated?.growth_rate != null) ds.growth_rate = data.updated.growth_rate;
+      });
+      input.classList.remove('saving');
+      input.classList.add('saved');
+      if (showGrowthRate && allDatasets.length)
+        renderChart(allDatasets, allDatasets[0].time_col, allDatasets[0].value_col);
+      renderLegend(allDatasets);
+      setTimeout(() => input.classList.remove('saved'), 2000);
+    } else {
+      input.classList.remove('saving');
+      input.classList.add('err');
+      setTimeout(() => input.classList.remove('err'), 2500);
+    }
+  } catch (e) {
+    input.classList.remove('saving');
+    input.classList.add('err');
+    setTimeout(() => input.classList.remove('err'), 2500);
+  }
+}
+
+// ── Trapezoid AUC from t >= AUC_START ──
+function computeAuc(xs, ys, startT) {
+  let auc = 0;
+  for (let i = 0; i < xs.length - 1; i++) {
+    const x0 = xs[i], x1 = xs[i + 1];
+    if (x1 <= startT) continue;            // entirely before start
+    const t0 = Math.max(x0, startT);       // clamp left edge
+    // interpolate y at t0 if we're clipping the first segment
+    const y0 = (x0 < startT)
+      ? ys[i] + (ys[i+1] - ys[i]) * (startT - x0) / (x1 - x0)
+      : ys[i];
+    const y1 = ys[i + 1];
+    auc += 0.5 * (y0 + y1) * (x1 - t0);
+  }
+  return auc;
+}
+
+// ── Custom Chart.js plugin: vertical peak lines ──
+const peakLinesPlugin = {
+  id: 'peakLines',
+  afterDraw(chartInstance) {
+    if (!showPeakLine) return;
+    const primarySets = allDatasets.filter(d => d.is_primary);
+    if (!primarySets.length) return;
+
+    const ctx   = chartInstance.ctx;
+    const xAxis = chartInstance.scales.x;
+    const yAxis = chartInstance.scales.y;
+
+    // One line per primary series at its peak x
+    primarySets.forEach((ds, i) => {
+      // Use stored value; fall back to computing from data
+      const peakX = ds.peak_od_time != null
+        ? ds.peak_od_time
+        : ds.x[ds.y.indexOf(Math.max(...ds.y))];
+      const color = PALETTE[allDatasets.indexOf(ds) % PALETTE.length];
+
+      const px = xAxis.getPixelForValue(peakX);
+      const top    = yAxis.top;
+      const bottom = yAxis.bottom;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth   = 1.5;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.75;
+      ctx.moveTo(px, top);
+      ctx.lineTo(px, bottom);
+      ctx.stroke();
+
+      // Label: "x=N  y=N" just above the x-axis
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.font      = "10px 'IBM Plex Mono', monospace";
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      const label = `t=${peakX}`;
+      ctx.fillText(label, px, bottom + 14);
+      ctx.restore();
+    });
+  }
+};
+
+// ── Custom Chart.js plugin: AUC shading ──
+const aucPlugin = {
+  id: 'aucShading',
+  beforeDraw(chartInstance) {
+    if (!showAuc) return;
+    const primarySets = allDatasets.filter(d => d.is_primary);
+    if (!primarySets.length) return;
+
+    const ctx   = chartInstance.ctx;
+    const xAxis = chartInstance.scales.x;
+    const yAxis = chartInstance.scales.y;
+    const baseline = yAxis.getPixelForValue(0);
+
+    primarySets.forEach((ds) => {
+      const color    = PALETTE[allDatasets.indexOf(ds) % PALETTE.length];
+      const startT   = ds.auc_start != null ? ds.auc_start : AUC_START;
+
+      // Collect points at or past startT
+      const pts = ds.x.reduce((acc, x, i) => {
+        if (x >= startT) acc.push({ x, y: ds.y[i] });
+        return acc;
+      }, []);
+
+      // Interpolate exact y at startT if needed
+      const firstIdx = ds.x.findIndex(x => x >= startT);
+      if (firstIdx > 0 && ds.x[firstIdx] > startT) {
+        const x0 = ds.x[firstIdx - 1], x1 = ds.x[firstIdx];
+        const y0 = ds.y[firstIdx - 1], y1 = ds.y[firstIdx];
+        const yInterp = y0 + (y1 - y0) * (startT - x0) / (x1 - x0);
+        pts.unshift({ x: startT, y: yInterp });
+      }
+
+      if (pts.length < 2) return;
+
+      // Use stored AUC value if available; otherwise compute
+      const auc = ds.auc_value != null ? ds.auc_value : computeAuc(ds.x, ds.y, startT);
+
+      ctx.save();
+      ctx.beginPath();
+      // Trace the curve from left to right
+      pts.forEach((p, i) => {
+        const px = xAxis.getPixelForValue(p.x);
+        const py = yAxis.getPixelForValue(p.y);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      });
+      // Close back along the baseline (y=0)
+      const lastPx = xAxis.getPixelForValue(pts[pts.length - 1].x);
+      const firstPx = xAxis.getPixelForValue(pts[0].x);
+      ctx.lineTo(lastPx, baseline);
+      ctx.lineTo(firstPx, baseline);
+      ctx.closePath();
+
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.13;
+      ctx.fill();
+
+      // Outline the filled region
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+
+      // AUC label inside the shaded area — centred horizontally
+      const midX = (pts[0].x + pts[pts.length - 1].x) / 2;
+      const midY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+      const labelPx = xAxis.getPixelForValue(midX);
+      const labelPy = yAxis.getPixelForValue(midY * 0.55);
+
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.font        = "bold 11px 'IBM Plex Mono', monospace";
+      ctx.fillStyle   = color;
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'middle';
+
+      const aucLabel = `AUC = ${auc.toFixed(2)}`;
+      // Pill background
+      const tw = ctx.measureText(aucLabel).width;
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle   = '#0b0e13';
+      ctx.beginPath();
+      ctx.roundRect(labelPx - tw/2 - 6, labelPy - 9, tw + 12, 18, 4);
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = color;
+      ctx.fillText(aucLabel, labelPx, labelPy);
+      ctx.restore();
+    });
+  }
+};
+
+// ── Custom Chart.js plugin: specific growth rate (exponential fit line) ──
+const growthRatePlugin = {
+  id: 'growthRate',
+  afterDraw(chartInstance) {
+    if (!showGrowthRate) return;
+    const primarySets = allDatasets.filter(d => d.is_primary);
+    if (!primarySets.length) return;
+
+    const ctx   = chartInstance.ctx;
+    const xAxis = chartInstance.scales.x;
+    const yAxis = chartInstance.scales.y;
+
+    primarySets.forEach(ds => {
+      const color   = PALETTE[allDatasets.indexOf(ds) % PALETTE.length];
+      const startT  = ds.gr_start  != null ? ds.gr_start  : 2;
+      const mu      = ds.growth_rate;
+
+      // Find the peak index (fitting window ends there)
+      const peakIdx = ds.y.indexOf(Math.max(...ds.y));
+      const endT    = ds.x[peakIdx];
+
+      // Find the y value at startT by interpolation
+      const firstIdx = ds.x.findIndex(x => x >= startT);
+      if (firstIdx < 0) return;
+      let y0;
+      if (firstIdx > 0 && ds.x[firstIdx] > startT) {
+        const x0 = ds.x[firstIdx - 1], x1 = ds.x[firstIdx];
+        const ya  = ds.y[firstIdx - 1], yb  = ds.y[firstIdx];
+        y0 = ya + (yb - ya) * (startT - x0) / (x1 - x0);
+      } else {
+        y0 = ds.y[firstIdx];
+      }
+      if (y0 <= 0 || mu == null) return;
+
+      // Draw the fitted exponential: y = y0 * exp(μ * (t - startT))
+      // Sample at every rendered pixel for a smooth curve
+      const pxStart = xAxis.getPixelForValue(startT);
+      const pxEnd   = xAxis.getPixelForValue(endT);
+      if (pxEnd <= pxStart) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([6, 3]);
+      ctx.lineWidth   = 2;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.85;
+
+      let started = false;
+      for (let px = Math.floor(pxStart); px <= Math.ceil(pxEnd); px++) {
+        const t  = xAxis.getValueForPixel(px);
+        const yv = y0 * Math.exp(mu * (t - startT));
+        const py = yAxis.getPixelForValue(yv);
+        if (!started) { ctx.moveTo(px, py); started = true; }
+        else            ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // μ label pill at the midpoint of the fitted line
+      const midT  = (startT + endT) / 2;
+      const midY  = y0 * Math.exp(mu * (midT - startT));
+      const lx    = xAxis.getPixelForValue(midT);
+      const ly    = yAxis.getPixelForValue(midY) - 14;
+
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.font        = "bold 10px 'IBM Plex Mono', monospace";
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'middle';
+      const lbl = `μ = ${mu.toFixed(3)} h⁻¹`;
+      const tw  = ctx.measureText(lbl).width;
+
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle   = '#0b0e13';
+      ctx.beginPath();
+      ctx.roundRect(lx - tw/2 - 6, ly - 9, tw + 12, 18, 4);
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = color;
+      ctx.fillText(lbl, lx, ly);
+      ctx.restore();
+    });
+  }
+};
+
+const PALETTE = [
+  '#818cf8','#22d3ee','#f472b6','#34d399','#fb923c',
+  '#60a5fa','#4ade80','#f87171','#a78bfa','#facc15',
+  '#38bdf8','#c084fc','#86efac','#fda4af','#fcd34d',
+  '#67e8f9','#6366f1','#6ee7b7','#fca5a5','#a5f3fc'
+];
+
+// ── Load metadata ──
+async function loadMetadata() {
+  const path = document.getElementById('metaPath').value.trim();
+  if (!path) { flash('err','Enter a file path.'); return; }
+  setLoading(true);
+  try {
+    const res  = await fetch('/api/load-metadata/', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({filepath: path})
+    });
+    const data = await res.json();
+    if (!res.ok) { flash('err', data.error); return; }
+
+    meta = data;
+    flash('ok', `✓ ${data.rows} rows loaded`);
+    document.getElementById('dot').className = 'dot on';
+    document.getElementById('statusTxt').textContent = `${data.rows} rows`;
+
+    buildFilters('primaryFilters', data.filters, 'pri', primaryFilters, fetchAndPlot);
+    buildFilters('overlayFilters', data.filters, 'ovl', overlayFilters, fetchAndPlot);
+
+    document.getElementById('panelPrimary').style.display = '';
+    document.getElementById('panelOverlay').style.display = '';
+
+  } catch(e) { flash('err', 'Error: ' + e.message); }
+  finally { setLoading(false); }
+}
+
+// ── Build filters ──
+function buildFilters(containerId, filters, type, stateObj, onChange) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  for (const [col, vals] of Object.entries(filters)) {
+    const div = document.createElement('div');
+    div.className = 'fg';
+    div.innerHTML = `
+      <div class="fg-lbl">
+        <span class="tag ${type}">${col}</span>
+        <span>${vals.length}</span>
+      </div>
+      <select id="${type}_${col}">
+        <option value="">— All —</option>
+        ${vals.map(v => `<option value="${v}">${v}</option>`).join('')}
+      </select>`;
+    div.querySelector('select').addEventListener('change', function() {
+      if (this.value) stateObj[col] = this.value;
+      else delete stateObj[col];
+      onChange();
+    });
+    container.appendChild(div);
+  }
+}
+
+function clearOverlay() {
+  overlayFilters = {};
+  document.querySelectorAll('#overlayFilters select').forEach(s => s.value = '');
+  fetchAndPlot();
+}
+
+// ── Fetch & plot ──
+async function fetchAndPlot() {
+  if (!meta) return;
+  setLoading(true);
+  try {
+    const params = new URLSearchParams();
+    for (const [k,v] of Object.entries(primaryFilters)) params.set(`primary_${k}`, v);
+    for (const [k,v] of Object.entries(overlayFilters)) params.set(`overlay_${k}`, v);
+
+    const res  = await fetch('/api/kinetic-data/?' + params);
+    const data = await res.json();
+    allDatasets = data.datasets || [];
+
+    document.getElementById('priCount').textContent = `${data.primary_count} curves`;
+    document.getElementById('ovlCount').textContent = `${data.overlay_count} curves`;
+
+    setFlagState(data.current_flag || '');
+
+    const eb = document.getElementById('errBlock');
+    if (data.errors?.length) {
+      eb.style.display = '';
+      eb.innerHTML = `<div style="font-family:var(--mono);font-size:10px;color:#fca5a5;background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.2);border-radius:4px;padding:9px;line-height:1.8">⚠ ${data.errors.join('<br>')}</div>`;
+    } else eb.style.display = 'none';
+
+    renderChart(allDatasets, data.x_label, data.y_label);
+    renderLegend(allDatasets);
+    document.getElementById('toolbar').style.display = allDatasets.length ? '' : 'none';
+    document.getElementById('legendBlock').style.display = allDatasets.length ? '' : 'none';
+
+    // Populate the panel inputs from the first primary series
+    const firstPri  = allDatasets.find(d => d.is_primary);
+    const peakInput = document.getElementById('peakTimeInput');
+    const aucInput  = document.getElementById('aucStartInput');
+    const grInput   = document.getElementById('grStartInput');
+    if (peakInput) peakInput.value = (firstPri?.peak_od_time != null) ? firstPri.peak_od_time : '';
+    if (aucInput)  aucInput.value  = (firstPri?.auc_start    != null) ? firstPri.auc_start    : '';
+    if (grInput)   grInput.value   = (firstPri?.gr_start     != null) ? firstPri.gr_start     : '';
+
+  } catch(e) { console.error(e); }
+  finally { setLoading(false); }
+}
+
+// ── Chart ──
+function renderChart(datasets, xLabel, yLabel) {
+  if (chart) { chart.destroy(); chart = null; }
+  const canvas = document.getElementById('kineticChart');
+  const ph = document.getElementById('placeholder');
+
+  if (!datasets.length) {
+    canvas.style.display = 'none';
+    ph.style.display = '';
+    return;
+  }
+
+  ph.style.display = 'none';
+  canvas.style.display = 'block';
+
+  // Build the base chart datasets
+  const chartDatasets = datasets.map((ds, i) => {
+    const color = PALETTE[i % PALETTE.length];
+    return {
+      label: ds.label,
+      data: ds.x.map((x, j) => ({x, y: ds.y[j]})),
+      borderColor: color,
+      backgroundColor: color + '15',
+      borderWidth: ds.is_primary ? 2.2 : 1.3,
+      borderDash: ds.is_primary ? [] : [6,3],
+      pointRadius: lineStyle === 'lines' ? 0 : lineStyle === 'points' ? 4 : 2,
+      pointHoverRadius: 5,
+      tension: 0.2,
+      fill: false,
+    };
+  });
+
+  // Append one smoothed curve per primary dataset
+  if (showSmoothing) {
+    const WINDOW = 5;
+    datasets.forEach((ds, i) => {
+      if (!ds.is_primary) return;
+      const color = PALETTE[i % PALETTE.length];
+      const smoothedY = rollingMean(ds.y, WINDOW);
+      chartDatasets.push({
+        label: ds.label + ' [smoothed]',
+        data: ds.x.map((x, j) => ({x, y: smoothedY[j]})),
+        borderColor: color,
+        backgroundColor: 'transparent',
+        borderWidth: 2.5,
+        borderDash: [3, 3],
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.35,
+        fill: false,
+        _isSmoothed: true,
+      });
+    });
+  }
+
+  chart = new Chart(canvas, {
+    type: 'line',
+    data: { datasets: chartDatasets },
+    plugins: [peakLinesPlugin, aucPlugin, growthRatePlugin],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 200 },
+      interaction: { mode: 'index', intersect: false },
+      layout: { padding: { bottom: 20 } },  /* room for peak x labels */
+      scales: {
+        x: {
+          type: 'linear',
+          title: { display: true, text: xLabel, color:'#64748b', font:{ family:"'IBM Plex Mono'", size:11 } },
+          grid: { color:'#1e2535' },
+          ticks: { color:'#475569', font:{ family:"'IBM Plex Mono'", size:10 } }
+        },
+        y: {
+          title: { display: true, text: yLabel, color:'#64748b', font:{ family:"'IBM Plex Mono'", size:11 } },
+          grid: { color:'#1e2535' },
+          ticks: { color:'#475569', font:{ family:"'IBM Plex Mono'", size:10 } }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor:'#111520', borderColor:'#1e2535', borderWidth:1,
+          titleFont:{ family:"'IBM Plex Mono'", size:11 },
+          bodyFont: { family:"'IBM Plex Mono'", size:10 },
+          titleColor:'#e2e8f0', bodyColor:'#94a3b8', padding:10,
+          callbacks: {
+            title: items => `${xLabel}: ${items[0].parsed.x}`,
+            label: item  => ` ${item.dataset.label}: ${item.parsed.y}`
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── Legend ──
+function renderLegend(datasets) {
+  const list = document.getElementById('legendList');
+  list.innerHTML = '';
+
+  // Base items (one per dataset)
+  const legendItems = datasets.map((ds, i) => ({
+    ds,
+    color:    PALETTE[i % PALETTE.length],
+    name:     Object.values(ds.metadata).join(' · ') || ds.label,
+    type:     ds.is_primary ? 'primary' : 'overlay',
+    dashed:   !ds.is_primary,
+    chartIdx: i,
+  }));
+
+  // Smoothed extras
+  if (showSmoothing) {
+    let smoothIdx = datasets.length;
+    datasets.forEach((ds, i) => {
+      if (!ds.is_primary) return;
+      legendItems.push({
+        ds,
+        color:    PALETTE[i % PALETTE.length],
+        name:     (Object.values(ds.metadata).join(' · ') || ds.label) + ' [smoothed]',
+        type:     'smoothed',
+        dashed:   true,
+        chartIdx: smoothIdx++,
+      });
+    });
+  }
+
+  legendItems.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'leg-row';
+
+    const swStyle = item.dashed
+      ? `background:repeating-linear-gradient(90deg,${item.color} 0,${item.color} 4px,transparent 4px,transparent 7px)`
+      : `background:${item.color}`;
+    const badgeCls = item.type === 'primary' ? 'pri' : item.type === 'smoothed' ? 'smt' : 'ovl';
+    const badgeTxt = item.type === 'primary' ? 'primary' : item.type === 'smoothed' ? 'smooth' : 'overlay';
+
+    row.innerHTML = `
+      <div class="leg-header">
+        <div class="leg-sw" style="${swStyle}"></div>
+        <div class="leg-name ${item.type === 'primary' ? 'pri' : ''}">${item.name}</div>
+        <span class="leg-badge ${badgeCls}">${badgeTxt}</span>
+        <button class="eye" id="eye_${item.chartIdx}" onclick="toggleSeries(${item.chartIdx},this)">👁</button>
+      </div>`;
+
+    // Editable computed values — only for primary (not smoothed copies)
+    if (item.type === 'primary') {
+      const ds    = item.ds;
+      const rowId = ds.row_id;
+      const uid   = `r${rowId}`;
+      const computedDiv = document.createElement('div');
+      computedDiv.className = 'leg-computed';
+
+      const fields = [
+        { key: 'peak_od_time', label: 'Peak OD time',  hint: 'Enter to save',           val: ds.peak_od_time },
+        { key: 'auc_start',    label: 'AUC start',      hint: 'Enter → recomputes AUC',  val: ds.auc_start ?? 5 },
+        { key: 'auc_value',    label: 'AUC value',      hint: 'Enter to save',           val: ds.auc_value },
+        { key: 'gr_start',     label: 'μ fit start',    hint: 'Enter → recomputes μ',    val: ds.gr_start ?? 2 },
+        { key: 'growth_rate',  label: 'μ (h⁻¹)',        hint: 'Enter to save',           val: ds.growth_rate },
+      ];
+
+      fields.forEach(f => {
+        const fDiv = document.createElement('div');
+        fDiv.className = 'cval';
+        const inputId = `${f.key}_${uid}`;
+        const noteId  = `${f.key}_note_${uid}`;
+        fDiv.innerHTML = `
+          <div class="cval-lbl">${f.label}</div>
+          <input class="cval-input" id="${inputId}" type="number" step="any"
+                 value="${f.val != null ? Number(f.val).toFixed(3) : ''}">
+          <div class="cval-note" id="${noteId}">${f.hint}</div>`;
+        computedDiv.appendChild(fDiv);
+
+        // Wire up Enter key AND blur to save
+        const input = fDiv.querySelector('input');
+        const doSave = () => saveComputed(rowId, f.key, input.value, inputId, noteId);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
+        input.addEventListener('blur', doSave);
+      });
+
+      row.appendChild(computedDiv);
+    }
+
+    list.appendChild(row);
+  });
+}
+
+// ── Save a computed value for one row ──
+async function saveComputed(rowId, field, rawValue, inputId, noteId) {
+  const input = document.getElementById(inputId);
+  const note  = document.getElementById(noteId);
+  if (!input || !note) return;
+
+  const val = parseFloat(rawValue);
+  if (isNaN(val)) {
+    note.textContent = '✗ invalid number';
+    note.className   = 'cval-note err';
+    return;
+  }
+
+  // Check if value actually changed from what's stored
+  const ds = allDatasets.find(d => d.row_id === rowId);
+  const storedVal = ds ? ds[field] : null;
+  if (storedVal != null && Math.abs(storedVal - val) < 1e-9) return; // no change
+
+  input.className  = 'cval-input saving';
+  note.textContent = '…saving';
+  note.className   = 'cval-note';
+
+  try {
+    const res  = await fetch('/api/save-computed/', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ row_id: rowId, [field]: val })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      input.className  = 'cval-input';
+      note.textContent = '✗ ' + (data.error || 'error');
+      note.className   = 'cval-note err';
+      return;
+    }
+
+    // Update local dataset state in-place (no re-render)
+    if (ds) ds[field] = val;
+
+    // If auc_start changed → backend returned a new auc_value → update in-place
+    if (field === 'auc_start' && data.updated?.auc_value != null) {
+      const newAuc = data.updated.auc_value;
+      if (ds) ds.auc_value = newAuc;
+      const uid      = `r${rowId}`;
+      const aucInput = document.getElementById(`auc_value_${uid}`);
+      const aucNote  = document.getElementById(`auc_value_note_${uid}`);
+      if (aucInput) { aucInput.value = Number(newAuc).toFixed(3); }
+      if (aucNote)  { aucNote.textContent = 'recomputed ✓'; aucNote.className = 'cval-note ok'; }
+    }
+
+    // If gr_start changed → backend returned a new growth_rate → update in-place
+    if (field === 'gr_start' && data.updated?.growth_rate != null) {
+      const newGr = data.updated.growth_rate;
+      if (ds) ds.growth_rate = newGr;
+      const uid     = `r${rowId}`;
+      const grInput = document.getElementById(`growth_rate_${uid}`);
+      const grNote  = document.getElementById(`growth_rate_note_${uid}`);
+      if (grInput) { grInput.value = Number(newGr).toFixed(4); }
+      if (grNote)  { grNote.textContent = 'recomputed ✓'; grNote.className = 'cval-note ok'; }
+    }
+
+    input.className  = 'cval-input saved';
+    note.textContent = '✓ saved';
+    note.className   = 'cval-note ok';
+
+    // Redraw chart visuals only (not legend — that would destroy the inputs)
+    if ((showPeakLine || showAuc || showGrowthRate) && allDatasets.length) {
+      renderChart(allDatasets, allDatasets[0].time_col, allDatasets[0].value_col);
+    }
+
+    setTimeout(() => {
+      if (input) input.className = 'cval-input';
+      if (note)  {
+        const defaultHint = field === 'auc_start' ? 'Enter → recomputes AUC'
+                          : field === 'gr_start'  ? 'Enter → recomputes μ'
+                          : 'Enter to save';
+        note.textContent = defaultHint;
+        note.className   = 'cval-note';
+      }
+    }, 2500);
+
+  } catch (e) {
+    input.className  = 'cval-input';
+    note.textContent = '✗ network error';
+    note.className   = 'cval-note err';
+  }
+}
+
+function toggleSeries(idx, btn) {
+  if (!chart) return;
+  const m = chart.getDatasetMeta(idx);
+  m.hidden = !m.hidden;
+  chart.update();
+  btn.classList.toggle('off', m.hidden);
+}
+
+// ── Flags ──
+function setFlagState(flagVal) {
+  ['none','good','bad','check'].forEach(f => {
+    document.getElementById(`fb-${f}`).className = 'fb';
+  });
+  const active = flagVal === '' ? 'none' : flagVal;
+  if (active !== 'mixed') {
+    document.getElementById(`fb-${active}`)?.classList.add(`a-${active}`);
+  }
+  const fb = document.getElementById('flagFb');
+  if (flagVal === 'mixed') {
+    fb.textContent = '⚠ mixed flags in selection';
+    fb.className = 'flag-fb mixed';
+  } else {
+    fb.className = 'flag-fb';
+  }
+}
+
+async function applyFlag(flagValue) {
+  if (!meta) return;
+  setLoading(true);
+  try {
+    const res = await fetch('/api/save-flag/', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ flag: flagValue, primary_filters: primaryFilters })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setFlagState(flagValue);
+      const fb = document.getElementById('flagFb');
+      fb.textContent = `✓ "${flagValue || 'none'}" saved to ${data.rows_updated} row${data.rows_updated !== 1 ? 's' : ''}`;
+      fb.className = 'flag-fb show';
+      setTimeout(() => fb.classList.remove('show'), 2500);
+    } else { alert('Error: ' + data.error); }
+  } catch(e) { alert('Error: ' + e.message); }
+  finally { setLoading(false); }
+}
+
+// ── Helpers ──
+function setStyle(s) {
+  lineStyle = s;
+  ['Lines','Points','Both'].forEach(x => document.getElementById('btn'+x).classList.remove('active'));
+  document.getElementById('btn'+s[0].toUpperCase()+s.slice(1)).classList.add('active');
+  if (allDatasets.length) {
+    renderChart(allDatasets, allDatasets[0]?.time_col || 'Time', allDatasets[0]?.value_col || 'Value');
+    renderLegend(allDatasets);
+  }
+}
+
+function downloadChart() {
+  if (!chart) return;
+  const a = document.createElement('a');
+  a.download = 'kinetic_chart.png';
+  a.href = document.getElementById('kineticChart').toDataURL('image/png');
+  a.click();
+}
+
+function flash(type, msg) {
+  const el = document.getElementById('loadAlert');
+  el.textContent = msg; el.className = 'alert ' + type;
+}
+
+function setLoading(on) {
+  document.getElementById('spinner').style.display = on ? 'block' : 'none';
+  document.getElementById('loadBtn').disabled = on;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('metaPath').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadMetadata();
+  });
+});
+</script>
+</body>
+</html>
